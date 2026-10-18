@@ -18,6 +18,7 @@ API_URL = "http://localhost:5600/api/0"
 
 POLL_INTERVAL = 10
 LOOKBACK_SECONDS = 3600
+AFK_LOOKBACK_SECONDS = 86400
 FINALIZATION_DELAY_SECONDS = 20
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -375,17 +376,28 @@ def main():
                 }
 
                 now = utc_now()
-                start = now - timedelta(
-                    seconds=LOOKBACK_SECONDS
-                )
 
                 # 1. Récupérer les événements des deux sources.
+                # Les événements AFK peuvent durer beaucoup plus
+                # longtemps que les événements de fenêtre. Ils ont
+                # donc un regard dédié et plus large, afin qu'un
+                # événement finalisé reste visible jusqu'à son
+                # enregistrement.
                 events_by_bucket = {}
 
                 for bucket_id, bucket in selected_buckets.items():
+                    if bucket.get("type") == "afkstatus":
+                        lookback = AFK_LOOKBACK_SECONDS
+                    else:
+                        lookback = LOOKBACK_SECONDS
+
+                    bucket_start = now - timedelta(
+                        seconds=lookback
+                    )
+
                     events_by_bucket[bucket_id] = get_events(
                         bucket_id,
-                        start,
+                        bucket_start,
                         now,
                     )
 
@@ -397,17 +409,7 @@ def main():
                         afk_events.extend(
                             events_by_bucket[bucket_id]
                         )
-                
 
-                print(f"[DEBUG] Événements AFK récupérés : {len(afk_events)}")
-
-                for afk_event in afk_events:
-                    print(
-                        "[DEBUG] AFK :",
-                        afk_event.get("timestamp"),
-                        afk_event.get("data", {}).get("status"),
-                        "durée =", afk_event.get("duration"),
-                    )
                 # 3. Traiter les événements de chaque bucket.
                 for bucket_id, bucket in selected_buckets.items():
                     events = events_by_bucket[bucket_id]
